@@ -83,8 +83,8 @@ def listen_file_chunks(filename, num_chunks):
     s.listen()
     while True:
         conn, addr = s.accept()
-        data = conn.recv(1024)
-        packet = data.decode("utf-8")
+        packet = conn.recv(1024)
+
         print(packet)
 
         # TODO
@@ -99,7 +99,7 @@ def listen_file_chunks(filename, num_chunks):
 
 
 def process_packet(packet):
-    meta_data = packet[:100]   # First 100 bytes is metadata
+    meta_data = packet[:100].decode("utf-8")   # First 100 bytes is metadata
     seq_num = meta_data.split(";")[0]
     chunk = packet[100:]  # last 1400 bytes is file chunk
     file_chunks[seq_num] = chunk
@@ -178,7 +178,7 @@ def send_file_chunks(filename, chunk_start, chunk_end, dest_ip):
     # TODO
     # check if i have the file
     seq_num = chunk_start
-
+    filename = "files/" + filename
     with open(filename, 'rb') as file:
         while chunk_end > seq_num:
             data = file.read(CHUNK_SIZE)

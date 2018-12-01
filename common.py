@@ -46,7 +46,8 @@ def send_tcp_packet(ip_addr, port, packet, timeout=3):
     try:
         s.connect((ip_addr, port))
         s.sendall(packet.encode("utf-8"))
-    except:
+    except Exception as e:
+        print(e)
         print("Sending packet to {} is unsuccessful".format(ip_addr))
 
 
