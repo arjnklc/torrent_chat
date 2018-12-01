@@ -86,11 +86,17 @@ def send_controlled_udp_packet(ip_addr, port, packet, timeout=3):
         print("Sending packet to {} is unsuccessful".format(ip_addr))
 
 
-
-
 def append_to_file(b, filename):
     with open(filename, 'ab') as f:
         try:
             f.write(bytes(b, "utf-8"))
         except Exception as e:
-            pass
+            print(e)
+
+def write_to_file(chunks, filename):
+    with open(filename, 'wb') as f:
+        try:
+            for i,chunk in chunks.items():
+                f.write(chunk)
+        except Exception as e:
+            print(e)

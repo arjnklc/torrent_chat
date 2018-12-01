@@ -2,6 +2,7 @@ import threading
 import time
 import select
 import os
+from math import floor,ceil
 from common import *
 
 class File:
@@ -11,7 +12,6 @@ class File:
 
     def __repr__(self):
         return "Filename: {}, size: {}".format(self.filename, self.filesize)
-
 
 
 CHUNK_SIZE = 1400
@@ -24,14 +24,16 @@ threads = {}
 FILE_LIST_PORT = 8005
 FILE_REQUEST_PORT = 8006
 CHUNK_PORT = 8007
-ACK_PORT=8008
+ACK_PORT = 8008
 
-file_chunks = {}  # maps sequence numbers to chunks
+chunks_to_be_received = {}  # maps sequence numbers to chunks
 chunks_to_be_sent={}
+num_chunks = 0
 thread_list={}
 destination_IP=""
 rwnd_per_user = 0
-
+myIP=get_own_ip()
+mutex = threading.Lock()
 
 def get_my_file_list():
     my_files = []
@@ -82,36 +84,44 @@ def has_file(filename):
 
     return user_list
 
-# Protocol -> seq_num;rwnd;dest_IP
+# Protocol -> seq_num;rwnd;my_IP
 def send_ACK(seq_num, rwnd, dest_ip):
-    packet = str(seq_num) + ";" + str(rwnd) + ";" + dest_ip
+    packet = str(seq_num) + ";" + str(rwnd) + ";" + myIP
     send_udp_packet(dest_ip, ACK_PORT, packet)
 
 
-# TODO flow controlled UDP
-def listen_file_chunks(filename, num_chunks):
-    # TODO
+
+def process_packet(packet,total_chunk_number):
+    global rwnd_per_user
+    global chunks_to_be_received
+    global num_chunks
+    global mutex
+    #print(packet[:100])
+    meta_data = packet[:100].decode("utf-8")   # First 100 bytes is metadata
+    seq_num = meta_data.split(";")[0]
+    receiving_IP = meta_data.split(";")[1]
+    chunk = packet[100:]  # last 1400 bytes is file chunk
+    chunks_to_be_received[seq_num] = chunk
+    if (len(packet) == 1500) or (int(seq_num) == total_chunk_number-1):
+        send_ACK(seq_num, rwnd_per_user, receiving_IP)
+    if len(chunks_to_be_received) == num_chunks:
+        print(num_chunks)
+        try:
+            mutex.release()
+        except:
+            pass #already released
+
+def listen_file_chunks():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     s.bind(("", CHUNK_PORT))
     s.setblocking(0)
-
     while True:
-
         result = select.select([s], [], [])
         data = result[0][0].recv(1600)
         packet = data
-
         process_packet(packet,num_chunks)
-        if len(file_chunks) == num_chunks:
-            print(len(file_chunks))
-            print(num_chunks)
-            for i in range(len(file_chunks)):
-                chunk = file_chunks[str(i)]
-                append_to_file(chunk, filename)
 
-            print("File {} has downloaded.".format(filename))
-            return
 
 # Protocol -> seq_num;rwnd;dest_ip
 def listen_ACK():
@@ -136,23 +146,14 @@ def listen_ACK():
         thread_list[int(seq_num)].is_run = False
         try:
             index_chunk_to_be_sent, temp_chunk = chunks_to_be_sent.popitem()
-        except:
-            return
-        new_thread= threading.Thread(target=send_single_chunk, daemon=True,args=(temp_chunk,destination_IP))
-        new_thread.start()
-        thread_list[index_chunk_to_be_sent]=new_thread
+            new_thread = threading.Thread(target=send_single_chunk, daemon=True, args=(temp_chunk, destination_IP))
+            new_thread.start()
+            thread_list[index_chunk_to_be_sent] = new_thread
+        except Exception as e:
+            print(e)
 
 
-def process_packet(packet,total_chunk_number):
-    global rwnd_per_user
-    print(packet[:100])
-    meta_data = packet[:100].decode("utf-8")   # First 100 bytes is metadata
-    seq_num = meta_data.split(";")[0]
-    receiving_IP = meta_data.split(";")[1]
-    chunk = packet[100:]  # last 1400 bytes is file chunk
-    file_chunks[seq_num] = chunk
-    if len(packet) == 1500 or seq_num == total_chunk_number:
-        send_ACK(seq_num, rwnd_per_user, receiving_IP)
+
 
 
 def update_file_list(packet):
@@ -233,20 +234,21 @@ def send_single_chunk(packet, ip_addr):
         t = threading.currentThread()
         while getattr(t, "is_run", True):
             s.sendto(packet, (ip_addr, CHUNK_PORT))
+            print(packet)
             time.sleep(1)
     except Exception as e:
         print(e)
 
 
 def send_file_chunks(filename, chunk_start, chunk_end, dest_ip, rwnd):
-    # TODO
     global chunks_to_be_sent
     global thread_list
     global destination_IP
+    global num_chunks
     destination_IP=dest_ip
     packets_sent_but_not_acked = 0
 
-    max_pack_num = int(int(rwnd) / 1500)
+    max_pack_num = floor(int(rwnd) / 1500)
     num_chunks = chunk_end - chunk_start + 1
 
     index = chunk_start
@@ -275,8 +277,8 @@ def send_file_chunks(filename, chunk_start, chunk_end, dest_ip, rwnd):
         t = threading.Thread(target=send_single_chunk, daemon=True,args=(temp_chunk,dest_ip))
         t.is_running = True
         thread_list[index_chunk_to_be_sent] = t
-    for chunkNumber in thread_list.keys():
-        thread_list[chunkNumber].start()
+    for thread in thread_list.copy().values():
+        thread.start()
 
 # Sends request to the seed users for parts of a file with given chunk indices.
 # Protocol -> filename;chunk_start;chunk_end;dest_ip;rwnd
@@ -288,6 +290,8 @@ def request_file_chunks(filename, chunk_start, chunk_end, sender_ip, rwnd):
 
 # Finds who has the requested file and request all of them different parts of the file
 def get_file(filename):
+    global mutex
+    mutex.acquire()
     users = has_file(filename)
     global rwnd_per_user
     if len(users) == 0:
@@ -295,27 +299,39 @@ def get_file(filename):
         return
 
     file_size = get_file_size(filename)
-    global file_chunks
-    file_chunks = {}
-    num_chunks = int(file_size / CHUNK_SIZE) + 1
+    global chunks_to_be_received
+    global num_chunks
+    chunks_to_be_received = {}
+    num_chunks = ceil(file_size / CHUNK_SIZE)
 
-    threading.Thread(target=listen_file_chunks, args=(filename, num_chunks), daemon=True).start()
 
-    chunk_interval = int(num_chunks / len(users) + 1)
+    base_chunk,extra_chunk= divmod(num_chunks,len(users))
     index = 0
-    rwnd_per_user = BUFFER_SIZE / len(users)
+    rwnd_per_user = ceil(BUFFER_SIZE / len(users))
 
-    for user in users:
-        request_file_chunks(filename, index, index + chunk_interval, user, rwnd_per_user)
-        index += chunk_interval
-
+    for userIP in users:
+        if extra_chunk != 0:
+            chunk_interval = base_chunk+1
+            extra_chunk-= 1
+        else:
+            chunk_interval = base_chunk
+        if chunk_interval != 0:
+            request_file_chunks(filename, index, index + chunk_interval-1, userIP, rwnd_per_user)
+            index += chunk_interval
+    mutex.acquire()
+    write_to_file(chunks_to_be_received, filename)
+    print("File {} has been downloaded.".format(filename))
+    try:
+        mutex.release()
+    except:
+        pass #already released
 
 def list_available_files():
     global all_files
     all_files = {}
     broadcast("files;" + get_own_ip(), FILE_LIST_PORT)  # Protocol -> "files;dest_ip"
     print("Searching files. Please wait...")
-    time.sleep(3)
+    time.sleep(1)
     print_all_files()
 
 
@@ -323,4 +339,5 @@ def start():
     threading.Thread(target=listen_available_files, daemon=True).start()
     threading.Thread(target=listen_file_requests, daemon=True).start()
     threading.Thread(target=listen_file_list_requests, daemon=True).start()
+    threading.Thread(target=listen_file_chunks, daemon=True).start()
     threading.Thread(target=listen_ACK, daemon=True).start()
