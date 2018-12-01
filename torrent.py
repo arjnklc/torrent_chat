@@ -132,7 +132,7 @@ def listen_ACK():
         rwnd = packet.split(";")[1]
 
         # Stop the thread
-        thread_list[int(seq_num)].stop()
+        thread_list[int(seq_num)].is_run = False
         index_chunk_to_be_sent, temp_chunk = chunks_to_be_sent.popitem()
         new_thread= threading.Thread(target=send_single_chunk, daemon=True,args=(temp_chunk,destination_IP))
         new_thread.start()
@@ -261,7 +261,7 @@ def send_file_chunks(filename, chunk_start, chunk_end, dest_ip, rwnd):
             index += 1
 
 
-    for i in range(max_pack_num):
+    for i in range(min(max_pack_num, num_chunks)):
         index_chunk_to_be_sent=i+chunk_start
         temp_chunk=chunks_to_be_sent[index_chunk_to_be_sent]
         chunks_to_be_sent.pop(index_chunk_to_be_sent, None)
