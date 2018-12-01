@@ -85,6 +85,7 @@ def listen_file_chunks(filename, num_chunks):
         conn, addr = s.accept()
         data = conn.recv(1024)
         packet = data.decode("utf-8")
+        print(packet)
 
         # TODO
         process_packet(packet)
@@ -98,7 +99,7 @@ def listen_file_chunks(filename, num_chunks):
 
 
 def process_packet(packet):
-    meta_data = packet[:100].decode("utf-8")   # First 100 bytes is metadata
+    meta_data = packet[:100]   # First 100 bytes is metadata
     seq_num = meta_data.split(";")[0]
     chunk = packet[100:]  # last 1400 bytes is file chunk
     file_chunks[seq_num] = chunk
@@ -188,7 +189,7 @@ def send_file_chunks(filename, chunk_start, chunk_end, dest_ip):
 
             packet = meta_data + padding + data   # protocol -> seq_num;chunk
             # send_controlled_UDP(packet, port, dest_ip)
-            send_tcp_packet(dest_ip, CHUNK_PORT, packet)
+            send_controlled_udp_packet(dest_ip, CHUNK_PORT, packet)
             #process_packet(packet)
             seq_num += 1
 
@@ -215,7 +216,7 @@ def get_file(filename):
 
     threading.Thread(target=listen_file_chunks, args=(filename, num_chunks), daemon=True).start()
 
-    chunk_interval = num_chunks / len(users) + 1
+    chunk_interval = int(num_chunks / len(users) + 1)
     index = 0
     for user in users:
         request_file_chunks(filename, index, index + chunk_interval, user)

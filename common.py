@@ -64,6 +64,26 @@ def send_udp_packet(ip_addr, port, packet, timeout=3):
 
 
 
+"""
+Sends a tcp packet to a specified ip address and port. 
+Default timeout is 3 seconds.
+"""
+def send_controlled_udp_packet(ip_addr, port, packet, timeout=3):
+    if ip_addr == get_own_ip():
+        return
+
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(timeout)
+    try:
+        s.connect((ip_addr, port))
+        s.sendall(packet)
+    except Exception as e:
+        print(e)
+        print("Sending packet to {} is unsuccessful".format(ip_addr))
+
+
+
+
 def append_to_file(bytes, filename):
     with open(filename, 'ab') as f:
         f.write(bytes)
