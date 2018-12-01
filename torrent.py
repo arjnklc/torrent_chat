@@ -30,6 +30,8 @@ file_chunks = {}  # maps sequence numbers to chunks
 chunks_to_be_sent={}
 thread_list={}
 destination_IP=""
+rwnd_per_user = 0
+
 
 def get_my_file_list():
     my_files = []
@@ -80,9 +82,10 @@ def has_file(filename):
 
     return user_list
 
-# Protocol -> seq_num;rwnd
-def send_ACK(sequnce_number,rwnd):
-    global destination_IP
+# Protocol -> seq_num;rwnd;dest_IP
+def send_ACK(seq_num, rwnd, dest_ip):
+    packet = str(seq_num) + ";" + str(rwnd) + ";" + dest_ip
+    send_udp_packet(dest_ip, ACK_PORT, packet)
 
 
 # TODO flow controlled UDP
@@ -91,14 +94,14 @@ def listen_file_chunks(filename, num_chunks):
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     s.bind((get_own_ip(), CHUNK_PORT))
-    s.listen()
+    s.setblocking(0)
 
     while True:
-        conn, addr = s.accept()
-        packet = conn.recv(1600)
 
+        result = select.select([s], [], [])
+        data = result[0][0].recv(1600)
+        packet = data.decode("utf-8")
 
-        # TODO
         process_packet(packet,num_chunks)
         if len(file_chunks) == num_chunks:
             for i in range(len(file_chunks)):
@@ -108,7 +111,7 @@ def listen_file_chunks(filename, num_chunks):
             print("File {} has downloaded.".format(filename))
             return
 
-# Protocol -> seq_num;rwnd
+# Protocol -> seq_num;rwnd;dest_ip
 def listen_ACK():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.bind((get_own_ip(), ACK_PORT))
@@ -133,14 +136,16 @@ def listen_ACK():
         new_thread.start()
         thread_list[index_chunk_to_be_sent]=new_thread
 
+
 def process_packet(packet,total_chunk_number):
+    global rwnd_per_user
     meta_data = packet[:100].decode("utf-8")   # First 100 bytes is metadata
     seq_num = meta_data.split(";")[0]
     receiving_IP = meta_data.split(";")[1]
     chunk = packet[100:]  # last 1400 bytes is file chunk
     file_chunks[seq_num] = chunk
     if len(packet) == 1500 or seq_num == total_chunk_number:
-        send_ACK(seq_num,receiving_IP)
+        send_ACK(seq_num, rwnd_per_user, receiving_IP)
 
 
 def update_file_list(packet):
@@ -262,7 +267,7 @@ def send_file_chunks(filename, chunk_start, chunk_end, dest_ip, rwnd):
 # Sends request to the seed users for parts of a file with given chunk indices.
 # Protocol -> filename;chunk_start;chunk_end;dest_ip;rwnd
 def request_file_chunks(filename, chunk_start, chunk_end, sender_ip, rwnd):
-    packet = filename + ";" + str(chunk_start) + ";" + str(chunk_end) + ";" + get_own_ip() + str(rwnd)
+    packet = filename + ";" + str(chunk_start) + ";" + str(chunk_end) + ";" + get_own_ip() + ";" + str(rwnd)
     print(packet)
     send_tcp_packet(sender_ip, FILE_REQUEST_PORT, packet)
 
@@ -270,6 +275,7 @@ def request_file_chunks(filename, chunk_start, chunk_end, sender_ip, rwnd):
 # Finds who has the requested file and request all of them different parts of the file
 def get_file(filename):
     users = has_file(filename)
+    global rwnd_per_user
     if len(users) == 0:
         print("File not found.")
         return
