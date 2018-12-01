@@ -63,6 +63,7 @@ def send_udp_packet(ip_addr, port, packet, timeout=3):
     s.settimeout(timeout)
     try:
         s.sendto(packet.encode("utf-8"), (ip_addr, port))
+        s.close()
     except:
         pass
 

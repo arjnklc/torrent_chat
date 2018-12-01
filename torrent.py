@@ -104,6 +104,7 @@ def process_packet(packet,total_chunk_number):
     chunks_to_be_received[seq_num] = chunk
     if (len(packet) == 1500) or (int(seq_num) == total_chunk_number-1):
         send_ACK(seq_num, rwnd_per_user, receiving_IP)
+        print(len(chunks_to_be_received))
     if len(chunks_to_be_received) == num_chunks:
         print(num_chunks)
         try:
@@ -234,7 +235,7 @@ def send_single_chunk(packet, ip_addr):
         t = threading.currentThread()
         while getattr(t, "is_run", True):
             s.sendto(packet, (ip_addr, CHUNK_PORT))
-            print(packet)
+            s.close()
             time.sleep(1)
     except Exception as e:
         print(e)
@@ -246,7 +247,6 @@ def send_file_chunks(filename, chunk_start, chunk_end, dest_ip, rwnd):
     global destination_IP
     global num_chunks
     destination_IP=dest_ip
-    packets_sent_but_not_acked = 0
 
     max_pack_num = floor(int(rwnd) / 1500)
     num_chunks = chunk_end - chunk_start + 1
@@ -269,11 +269,8 @@ def send_file_chunks(filename, chunk_start, chunk_end, dest_ip, rwnd):
             chunks_to_be_sent[index] = packet
             index += 1
 
-
     for i in range(min(max_pack_num, num_chunks)):
-        index_chunk_to_be_sent=i+chunk_start
-        temp_chunk=chunks_to_be_sent[index_chunk_to_be_sent]
-        chunks_to_be_sent.pop(index_chunk_to_be_sent, None)
+        index_chunk_to_be_sent, temp_chunk = chunks_to_be_sent.popitem()
         t = threading.Thread(target=send_single_chunk, daemon=True,args=(temp_chunk,dest_ip))
         t.is_running = True
         thread_list[index_chunk_to_be_sent] = t
@@ -318,7 +315,9 @@ def get_file(filename):
         if chunk_interval != 0:
             request_file_chunks(filename, index, index + chunk_interval-1, userIP, rwnd_per_user)
             index += chunk_interval
+    print("Downloading...")
     mutex.acquire()
+    print("File {} has been transferred.".format(filename))
     write_to_file(chunks_to_be_received, filename)
     print("File {} has been downloaded.".format(filename))
     try:
