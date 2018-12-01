@@ -29,6 +29,9 @@ def broadcast(message, port):
         print(e)
 
 
+def utf8len(s):
+    return len(s.encode("utf-8"))
+
 def get_md5(str):
     result = hashlib.md5(str.encode("utf-8"))
     return result.hexdigest()

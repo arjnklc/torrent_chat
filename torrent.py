@@ -15,6 +15,7 @@ class File:
 
 
 
+
 CHUNK_SIZE = 1400
 
 all_files = {}
@@ -79,6 +80,7 @@ def has_file(filename):
 def listen_file_chunks(filename, num_chunks):
     # TODO
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     s.bind(("", CHUNK_PORT))
     s.listen()
     while True:
@@ -162,7 +164,7 @@ def listen_file_requests():
     s.listen()
     while True:
         conn, addr = s.accept()
-        data = conn.recv(1024)
+        data = conn.recv(1500)
         packet = data.decode("utf-8")
 
         print(packet)
@@ -183,9 +185,14 @@ def send_file_chunks(filename, chunk_start, chunk_end, dest_ip):
         while chunk_end > seq_num:
             data = file.read(CHUNK_SIZE)
             meta_data = bytes(str(seq_num) + ";", "utf-8")
+
+            print(data)
+            print(meta_data)
             padding_size = 100 - len(meta_data)
 
             padding = padding_size * bytes("\0", "utf-8")
+
+            print(padding)
 
             packet = meta_data + padding + data   # protocol -> seq_num;chunk
             # send_controlled_UDP(packet, port, dest_ip)
@@ -218,6 +225,7 @@ def get_file(filename):
 
     chunk_interval = int(num_chunks / len(users) + 1)
     index = 0
+    print(len(users))
     for user in users:
         request_file_chunks(filename, index, index + chunk_interval, user)
         index += chunk_interval

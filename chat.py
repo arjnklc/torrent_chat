@@ -90,7 +90,9 @@ def listen_udp_discovery_packets():
 def listen_tcp_discovery_packets():
 
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.bind(("", DISCOVERY_PORT))
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+    s.bind((get_own_ip(), DISCOVERY_PORT))
     s.listen()
 
     while True:
