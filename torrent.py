@@ -15,14 +15,17 @@ class File:
 
 
 
-
 CHUNK_SIZE = 1400
+BUFFER_SIZE = 64 * 1024  # 64KB
 
 all_files = {}
+
+threads = {}
 
 FILE_LIST_PORT = 8005
 FILE_REQUEST_PORT = 8006
 CHUNK_PORT = 8007
+ACK_PORT=8008
 
 file_chunks = {}  # maps sequence numbers to chunks
 
@@ -42,6 +45,7 @@ def get_my_file_list():
 
 # TODO
 def print_all_files():
+
     print(all_files)
 
 
@@ -81,13 +85,19 @@ def listen_file_chunks(filename, num_chunks):
     # TODO
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    s.bind(("", CHUNK_PORT))
+    s.bind((get_own_ip(), CHUNK_PORT))
     s.listen()
+
+    global sending_file
+
     while True:
         conn, addr = s.accept()
-        packet = conn.recv(1024)
+        packet = conn.recv(1600)
 
-        print(packet)
+        if len(packet) != 1500:
+            print(len(packet))
+
+            print(packet)
 
         # TODO
         process_packet(packet)
@@ -142,7 +152,7 @@ def listen_available_files():
 # If anyone broadcast for available files, send him a list of all the files I have
 def listen_file_list_requests():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    s.bind(("", FILE_LIST_PORT))
+    s.bind((get_own_ip(), FILE_LIST_PORT))
     s.setblocking(0)
 
     while True:
@@ -157,28 +167,94 @@ def listen_file_list_requests():
 
 
 # Listen TCP for file requests.
-# Protocol -> requested_filename;chunk_start;chunk_end;destination_ip
+# Protocol -> requested_filename;chunk_start;chunk_end;destination_ip;rwnd
 def listen_file_requests():
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.bind((get_own_ip(), FILE_REQUEST_PORT))
     s.listen()
     while True:
         conn, addr = s.accept()
-        data = conn.recv(1500)
+        data = conn.recv(1700)
         packet = data.decode("utf-8")
-
-        print(packet)
+        print(len(packet))
 
         requested_filename = packet.split(";")[0]
         chunk_start = int(packet.split(";")[1])
         chunk_end = int(packet.split(";")[2])
         request_ip = packet.split(";")[3]
-        send_file_chunks(requested_filename, chunk_start, chunk_end, request_ip)
+        rwnd = packet.split(";")[4]
+        send_file_chunks(requested_filename, chunk_start, chunk_end, request_ip, rwnd)
 
 
-def send_file_chunks(filename, chunk_start, chunk_end, dest_ip):
+# Protocol -> seq_num;rwnd
+def listen_ACK():
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.bind((get_own_ip(), ACK_PORT))
+    s.setblocking(0)
+
+    global sending_file
+
+    while True:
+        result = select.select([s], [], [])
+        data = result[0][0].recv(1024)
+        packet = data.decode("utf-8")
+
+        # Protocol -> "files;dest_ip"
+        seq_num = packet.split(";")[0]
+        rwnd = packet.split(";")[1]
+
+        # Stop the thread
+        sending_file[seq_num].stop()
+
+
+def send_single_chunk(packet, ip_addr):
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        while True:
+            s.sendto(packet, (ip_addr, CHUNK_PORT))
+            time.sleep(1)
+    except Exception as e:
+        print(e)
+
+
+def send_file_chunks(filename, chunk_start, chunk_end, dest_ip, rwnd):
     # TODO
-    # check if i have the file
+
+    packets_sent_but_not_acked = 0
+
+    max_pack_num = int(rwnd / 1500)
+    num_chunks = chunk_end - chunk_start + 1
+
+    index = chunk_start
+
+    filename = "files/" + filename
+    with open(filename, 'rb') as file:
+        _ = file.read(CHUNK_SIZE * chunk_start)
+
+        while chunk_end > index:
+            data = file.read(CHUNK_SIZE * chunk_start)
+            while packets_sent_but_not_acked <
+
+
+
+
+
+
+    while packets_sent_but_not_acked < max_pack_num and index < chunk_end:
+        data = file.read(CHUNK_SIZE)
+
+
+    for i in range(num_chunks):
+
+
+
+
+    for i in range(max_pack_num):
+        threading.Thread(target=listen_available_files, daemon=True).start()
+
+
+
+
     seq_num = chunk_start
     filename = "files/" + filename
     with open(filename, 'rb') as file:
@@ -186,25 +262,22 @@ def send_file_chunks(filename, chunk_start, chunk_end, dest_ip):
             data = file.read(CHUNK_SIZE)
             meta_data = bytes(str(seq_num) + ";", "utf-8")
 
-            print(data)
-            print(meta_data)
             padding_size = 100 - len(meta_data)
 
             padding = padding_size * bytes("\0", "utf-8")
 
-            print(padding)
-
             packet = meta_data + padding + data   # protocol -> seq_num;chunk
             # send_controlled_UDP(packet, port, dest_ip)
+            print(packet)
             send_controlled_udp_packet(dest_ip, CHUNK_PORT, packet)
             #process_packet(packet)
             seq_num += 1
 
 
 # Sends request to the seed users for parts of a file with given chunk indices.
-# Protocol -> filename;chunk_start;chunk_end;dest_ip
-def request_file_chunks(filename, chunk_start, chunk_end, sender_ip):
-    packet = filename + ";" + str(chunk_start) + ";" + str(chunk_end) + ";" + get_own_ip()
+# Protocol -> filename;chunk_start;chunk_end;dest_ip;rwnd
+def request_file_chunks(filename, chunk_start, chunk_end, sender_ip, rwnd):
+    packet = filename + ";" + str(chunk_start) + ";" + str(chunk_end) + ";" + get_own_ip() + str(rwnd)
     print(packet)
     send_tcp_packet(sender_ip, FILE_REQUEST_PORT, packet)
 
@@ -225,9 +298,10 @@ def get_file(filename):
 
     chunk_interval = int(num_chunks / len(users) + 1)
     index = 0
-    print(len(users))
+    rwnd_per_user = BUFFER_SIZE / len(users)
+
     for user in users:
-        request_file_chunks(filename, index, index + chunk_interval, user)
+        request_file_chunks(filename, index, index + chunk_interval, user, rwnd_per_user)
         index += chunk_interval
 
 
