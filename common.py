@@ -88,6 +88,9 @@ def send_controlled_udp_packet(ip_addr, port, packet, timeout=3):
 
 
 
-def append_to_file(bytes, filename):
+def append_to_file(b, filename):
     with open(filename, 'ab') as f:
-        f.write(bytes)
+        try:
+            f.write(bytes(b, "utf-8"))
+        except Exception as e:
+            pass
