@@ -10,6 +10,10 @@ class File:
         self.filename = filename
         self.filesize = filesize
 
+    def __repr__(self):
+        return "Filename: {}, size: {}".format(self.filename, self.filesize)
+
+
 
 CHUNK_SIZE = 1400
 
@@ -36,6 +40,10 @@ def get_my_file_list():
 
 
 # TODO
+def print_all_files():
+    print(all_files)
+
+
 def share_my_list(target_ip):
     # protocol -> sender_IP;filename*filesize/filename*filesize/
     packet = get_own_ip() + ";"
@@ -104,26 +112,26 @@ def update_file_list(packet):
     files = []
     for file in file_list.split("/"):
         if "*" not in file:
+            all_files[sender_ip] = files
             return
 
         filename = file.split("*")[0]
         filesize = file.split("*")[1]
-        f = File(filename, filesize)
+        f = File(filename, int(filesize))
         files.append(f)
-
-    all_files[sender_ip] = files
 
 
 # Listen TCP after broadcasting to get all the files in the network
 def listen_available_files():
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.bind(("", FILE_LIST_PORT))
+    s.bind((get_own_ip(), FILE_LIST_PORT))
     s.listen()
 
     while True:
         conn, addr = s.accept()
         data = conn.recv(1024)
         packet = data.decode("utf-8")
+        print(packet)
         update_file_list(packet)
 
 
@@ -140,6 +148,8 @@ def listen_file_list_requests():
         packet = data.decode("utf-8")
         # Protocol -> "files;dest_ip"
         dest_ip = packet.split(";")[1]
+        print(packet)
+        print(dest_ip)
         share_my_list(dest_ip)
 
 
@@ -147,12 +157,14 @@ def listen_file_list_requests():
 # Protocol -> requested_filename;chunk_start;chunk_end;destination_ip
 def listen_file_requests():
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.bind(("", FILE_REQUEST_PORT))
+    s.bind((get_own_ip(), FILE_REQUEST_PORT))
     s.listen()
     while True:
         conn, addr = s.accept()
         data = conn.recv(1024)
         packet = data.decode("utf-8")
+
+        print(packet)
 
         requested_filename = packet.split(";")[0]
         chunk_start = int(packet.split(";")[1])
@@ -185,6 +197,7 @@ def send_file_chunks(filename, chunk_start, chunk_end, dest_ip):
 # Protocol -> filename;chunk_start;chunk_end;dest_ip
 def request_file_chunks(filename, chunk_start, chunk_end, sender_ip):
     packet = filename + ";" + str(chunk_start) + ";" + str(chunk_end) + ";" + get_own_ip()
+    print(packet)
     send_tcp_packet(sender_ip, FILE_REQUEST_PORT, packet)
 
 
@@ -199,7 +212,8 @@ def get_file(filename):
     global file_chunks
     file_chunks = {}
     num_chunks = int(file_size / CHUNK_SIZE) + 1
-    listen_file_chunks(filename, num_chunks)
+
+    threading.Thread(target=listen_file_chunks, args=(filename, num_chunks), daemon=True).start()
 
     chunk_interval = num_chunks / len(users) + 1
     index = 0
@@ -214,7 +228,7 @@ def list_available_files():
     broadcast("files;" + get_own_ip(), FILE_LIST_PORT)  # Protocol -> "files;dest_ip"
     print("Searching files. Please wait...")
     time.sleep(3)
-    print(all_files)
+    print_all_files()
 
 
 def start():

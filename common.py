@@ -22,7 +22,7 @@ def get_own_ip():
 def broadcast(message, port):
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.bind(('', 0))
+        sock.bind((get_own_ip(), 0))
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         sock.sendto(message.encode("utf-8"), ('<broadcast>', port))
     except Exception as e:
