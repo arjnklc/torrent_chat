@@ -73,6 +73,7 @@ the discovery packets, add this user to the online_users list
 def listen_udp_discovery_packets():
 
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     s.bind(("", DISCOVERY_PORT))
     s.setblocking(0)
 

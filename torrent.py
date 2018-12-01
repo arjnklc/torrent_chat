@@ -93,7 +93,7 @@ def listen_file_chunks(filename, num_chunks):
     # TODO
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    s.bind((get_own_ip(), CHUNK_PORT))
+    s.bind(("", CHUNK_PORT))
     s.setblocking(0)
 
     while True:
@@ -116,7 +116,8 @@ def listen_file_chunks(filename, num_chunks):
 # Protocol -> seq_num;rwnd;dest_ip
 def listen_ACK():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    s.bind((get_own_ip(), ACK_PORT))
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    s.bind(("", ACK_PORT))
     s.setblocking(0)
 
     global thread_list
@@ -133,7 +134,10 @@ def listen_ACK():
 
         # Stop the thread
         thread_list[int(seq_num)].is_run = False
-        index_chunk_to_be_sent, temp_chunk = chunks_to_be_sent.popitem()
+        try:
+            index_chunk_to_be_sent, temp_chunk = chunks_to_be_sent.popitem()
+        except:
+            return
         new_thread= threading.Thread(target=send_single_chunk, daemon=True,args=(temp_chunk,destination_IP))
         new_thread.start()
         thread_list[index_chunk_to_be_sent]=new_thread
@@ -171,6 +175,7 @@ def update_file_list(packet):
 # Listen TCP after broadcasting to get all the files in the network
 def listen_available_files():
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     s.bind((get_own_ip(), FILE_LIST_PORT))
     s.listen()
 
@@ -186,7 +191,8 @@ def listen_available_files():
 # If anyone broadcast for available files, send him a list of all the files I have
 def listen_file_list_requests():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    s.bind((get_own_ip(), FILE_LIST_PORT))
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    s.bind(("", FILE_LIST_PORT))
     s.setblocking(0)
 
     while True:
@@ -204,6 +210,7 @@ def listen_file_list_requests():
 # Protocol -> requested_filename;chunk_start;chunk_end;destination_ip;rwnd
 def listen_file_requests():
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     s.bind((get_own_ip(), FILE_REQUEST_PORT))
     s.listen()
     while True:
@@ -267,8 +274,9 @@ def send_file_chunks(filename, chunk_start, chunk_end, dest_ip, rwnd):
         chunks_to_be_sent.pop(index_chunk_to_be_sent, None)
         t = threading.Thread(target=send_single_chunk, daemon=True,args=(temp_chunk,dest_ip))
         t.is_running = True
-        t.start()
         thread_list[index_chunk_to_be_sent] = t
+    for chunkNumber in thread_list.keys():
+        thread_list[chunkNumber].start()
 
 # Sends request to the seed users for parts of a file with given chunk indices.
 # Protocol -> filename;chunk_start;chunk_end;dest_ip;rwnd
