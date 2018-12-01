@@ -176,8 +176,8 @@ def send_file_chunks(filename, chunk_start, chunk_end, dest_ip):
 
             packet = meta_data + padding + data   # protocol -> seq_num;chunk
             # send_controlled_UDP(packet, port, dest_ip)
-
-            process_packet(packet)
+            send_tcp_packet(dest_ip, CHUNK_PORT, packet)
+            #process_packet(packet)
             seq_num += 1
 
 
@@ -217,7 +217,7 @@ def list_available_files():
     print(all_files)
 
 
-def main():
+def start():
     threading.Thread(target=listen_available_files, daemon=True).start()
     threading.Thread(target=listen_file_requests, daemon=True).start()
     threading.Thread(target=listen_file_list_requests, daemon=True).start()
