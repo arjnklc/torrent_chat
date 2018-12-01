@@ -1,35 +1,19 @@
-import socket
 import threading
-import hashlib
 import time
 import select
-import common
 import torrent
 
+from common import *
 
-discovery_port = 5000
-message_port = 5001
+
+DISCOVERY_PORT = 5000
+MESSAGE_PORT = 5001
 
 DISCOVERY_INTERVAL = 60  # seconds
 
 online_users = {}
 incoming_hashes = {}
 sent_hashes = {}
-
-
-def get_name():
-    return "Arjen"
-
-
-def get_own_ip():
-    return (([ip for ip in socket.gethostbyname_ex(socket.gethostname())[2] if not ip.startswith("127.")] or [
-        [(s.connect(("8.8.8.8", 53)), s.getsockname()[0], s.close()) for s in
-         [socket.socket(socket.AF_INET, socket.SOCK_DGRAM)]][0][1]]) + ["no IP found"])[0]
-
-
-def get_md5(str):
-    result = hashlib.md5(str.encode("utf-8"))
-    return result.hexdigest()
 
 
 def print_online_users():
@@ -39,47 +23,6 @@ def print_online_users():
         print("{0}  =>  {1}".format(username, ip_addr))
 
     print(36 * "-")
-
-
-"""
-Sends a tcp packet to a specified ip address and port. 
-Default timeout is 3 seconds.
-"""
-def send_tcp_packet(ip_addr, port, packet, timeout=3):
-    if ip_addr == get_own_ip():
-        return
-
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.settimeout(timeout)
-    try:
-        s.connect((ip_addr, port))
-        s.sendall(packet.encode("utf-8"))
-    except:
-        print("Sending packet to {} is unsuccessful".format(ip_addr))
-
-
-
-def send_udp_packet(ip_addr, port, packet, timeout=3):
-    if ip_addr == get_own_ip():
-        return
-
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    s.settimeout(timeout)
-    try:
-        s.sendto(packet.encode("utf-8"), (ip_addr, port))
-    except:
-        pass
-
-
-
-def broadcast(message):
-    try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.bind(('', 0))
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-        sock.sendto(message.encode("utf-8"), ('<broadcast>', discovery_port))
-    except Exception as e:
-        print(e)
 
 
 def broadcast_continuously():
@@ -95,9 +38,8 @@ def broadcast_continuously():
 def discover():
     online_users.clear()
     packet = "0;{0};{1};;;".format(get_own_ip(), get_name())
-    broadcast(packet)
+    broadcast(packet, DISCOVERY_PORT)
     update_hashes()
-
 
 
 def defragment_discovery_packet(packet):
@@ -110,7 +52,6 @@ def defragment_discovery_packet(packet):
     except:
         print("invalid packet")
         return -1, "", ""
-
 
 
 def update_hashes():
@@ -132,7 +73,7 @@ the discovery packets, add this user to the online_users list
 def listen_udp_discovery_packets():
 
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    s.bind(("", discovery_port))
+    s.bind(("", DISCOVERY_PORT))
     s.setblocking(0)
 
     while True:
@@ -142,14 +83,14 @@ def listen_udp_discovery_packets():
 
         packet_type, sender_ip, sender_name = defragment_discovery_packet(packet)
         answer = "1;{0};{1};{2};{3};".format(get_own_ip(), get_name(), sender_ip, sender_name)
-        send_tcp_packet(sender_ip, discovery_port, answer)
+        send_tcp_packet(sender_ip, DISCOVERY_PORT, answer)
 
 
 
 def listen_tcp_discovery_packets():
 
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.bind(("", discovery_port))
+    s.bind(("", DISCOVERY_PORT))
     s.listen()
 
     while True:
@@ -187,7 +128,7 @@ if the hashes do not match, warn the user about man in the middle attack.1
 """
 def listen_message_packets():
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.bind(("", message_port))
+    s.bind(("", MESSAGE_PORT))
     s.listen()
     while True:
         conn, addr = s.accept()
@@ -232,7 +173,6 @@ def message_interface():
         message_interface()
 
 
-
 def file_interface():
     print_online_users()
     print("Enter the filename: (-1 to menu)")
@@ -244,10 +184,8 @@ def file_interface():
     torrent.get_file(filename)
 
 
-"""
-Sends a message to an ip address. If it is first message to that user, hash is md5 digest of the message.
-Otherwise, it is md5 digest of the last incoming message hash from that user.
-"""
+# Sends a message to an ip address. If it is first message to that user, hash is md5 digest of the message.
+# Otherwise, it is md5 digest of the last incoming message hash from that user.
 def send_message(ip_addr, message):
     hash = get_md5(message)
     if ip_addr in incoming_hashes:
@@ -255,7 +193,7 @@ def send_message(ip_addr, message):
 
     # message packet format -> sourceIP;hash;message;
     packet = "{0};{1};{2}".format(get_own_ip(), hash, message)
-    send_tcp_packet(ip_addr, message_port, packet, 3)
+    send_tcp_packet(ip_addr, MESSAGE_PORT, packet, 3)
 
     # Update the last hash
     sent_hashes[ip_addr] = hash
@@ -281,7 +219,6 @@ if __name__ == "__main__":
     threading.Thread(target=broadcast_continuously, daemon=True).start()
 
     torrent.start()
-
 
     while True:
         print_menu()

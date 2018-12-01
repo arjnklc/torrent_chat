@@ -2,6 +2,10 @@ import socket
 import hashlib
 
 
+def get_name():
+    return "Arjen"
+
+
 def get_own_ip():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
@@ -25,15 +29,9 @@ def broadcast(message, port):
         print(e)
 
 
-# Return md5 of a file
-def get_md5(filename):
-    hash_md5 = hashlib.md5()
-    with open(filename, "rb") as f:
-        for chunk in iter(lambda: f.read(4096), b""):
-            hash_md5.update(chunk)
-
-    return hash_md5.hexdigest()
-
+def get_md5(str):
+    result = hashlib.md5(str.encode("utf-8"))
+    return result.hexdigest()
 
 """
 Sends a tcp packet to a specified ip address and port. 
@@ -50,6 +48,20 @@ def send_tcp_packet(ip_addr, port, packet, timeout=3):
         s.sendall(packet.encode("utf-8"))
     except:
         print("Sending packet to {} is unsuccessful".format(ip_addr))
+
+
+
+def send_udp_packet(ip_addr, port, packet, timeout=3):
+    if ip_addr == get_own_ip():
+        return
+
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.settimeout(timeout)
+    try:
+        s.sendto(packet.encode("utf-8"), (ip_addr, port))
+    except:
+        pass
+
 
 
 def append_to_file(bytes, filename):
