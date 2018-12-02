@@ -97,7 +97,8 @@ def append_to_file(b, filename):
 def write_to_file(chunks, filename):
     with open(filename, 'wb') as f:
         try:
-            for i,chunk in chunks.items():
-                f.write(chunk)
+
+            for i in range(len(chunks)):
+                f.write(chunks[str(i)])
         except Exception as e:
             print(e)
