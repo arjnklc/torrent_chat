@@ -29,7 +29,7 @@ def broadcast_continuously():
     while True:
         try:
             discover()
-        except Exception as e:
+        except:
             print("broadcast error!")
 
         time.sleep(DISCOVERY_INTERVAL)
@@ -87,12 +87,10 @@ def listen_udp_discovery_packets():
         send_tcp_packet(sender_ip, DISCOVERY_PORT, answer)
 
 
-
 def listen_tcp_discovery_packets():
 
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-
     s.bind((get_own_ip(), DISCOVERY_PORT))
     s.listen()
 
@@ -127,7 +125,7 @@ def get_username_from_ip(sender_ip):
 
 """
 Continuously listens 5001. port for message packets.
-if the hashes do not match, warn the user about man in the middle attack.1
+if the hashes do not match, warn the user about man in the middle attack.
 """
 def listen_message_packets():
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -145,16 +143,14 @@ def listen_message_packets():
             if sender_ip in incoming_hashes and hash != get_md5(incoming_hashes[sender_ip]):
                 print("Hash mismatch, beware man in the middle!")
 
-
         print(">>")
-
         # update the last hash
         incoming_hashes[sender_ip] = hash
 
 
 def message_interface():
     print_online_users()
-    print("Enter the username: (-1 to menu)" )
+    print("Enter the username: (-1 to menu)")
     username = input(">>").lower()
 
     if username == "-1":
@@ -170,14 +166,12 @@ def message_interface():
             except:
                 print("User {0} seems to be offline. Please try again.".format(username))
 
-
     else:
         print("User '{}' not found. Try discovering online users.".format(username))
         message_interface()
 
 
 def file_interface():
-    print_online_users()
     print("Enter the filename: (-1 to menu)")
     filename = input(">>").lower()
 
@@ -190,16 +184,16 @@ def file_interface():
 # Sends a message to an ip address. If it is first message to that user, hash is md5 digest of the message.
 # Otherwise, it is md5 digest of the last incoming message hash from that user.
 def send_message(ip_addr, message):
-    hash = get_md5(message)
+    md5 = get_md5(message)
     if ip_addr in incoming_hashes:
-        hash = get_md5(incoming_hashes[ip_addr])
+        md5 = get_md5(incoming_hashes[ip_addr])
 
     # message packet format -> sourceIP;hash;message;
-    packet = "{0};{1};{2}".format(get_own_ip(), hash, message)
+    packet = "{0};{1};{2}".format(get_own_ip(), md5, message)
     send_tcp_packet(ip_addr, MESSAGE_PORT, packet, 3)
 
     # Update the last hash
-    sent_hashes[ip_addr] = hash
+    sent_hashes[ip_addr] = md5
 
 
 def print_menu():
