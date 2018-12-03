@@ -32,7 +32,7 @@ thread_list = {}
 destination_IP = ""
 rwnd_per_user = 0
 mutex = threading.Lock()
-
+socket_for_file_send = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
 def get_my_file_list():
     my_files = []
@@ -224,14 +224,13 @@ def listen_file_requests():
 
 
 def send_single_chunk(packet, ip_addr):
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    global socket_for_file_send
+    s = socket_for_file_send
     try:
         t = threading.currentThread()
         while getattr(t, "is_run", True):
             s.sendto(packet, (ip_addr, CHUNK_PORT))
             time.sleep(1)
-
-        s.close()
     except:
         pass
 
