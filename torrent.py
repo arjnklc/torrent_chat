@@ -2,6 +2,7 @@ import threading
 import time
 import select
 import os
+import sys
 from math import floor, ceil
 from common import *
 
@@ -27,13 +28,13 @@ threads = {}
 all_files = {}
 chunks_to_be_received = {}  # maps sequence numbers to chunks
 chunks_to_be_sent = {}
+chunk_numbers_waited_from_each_user={}
 num_chunks = 0
 thread_list = {}
 destination_IP = ""
-rwnd_per_user = 0
 mutex = threading.Lock()
 socket_for_file_send = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
+socket_for_file_send.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 def get_my_file_list():
     my_files = []
     path = "files/"
@@ -94,19 +95,30 @@ def send_ACK(seq_num, rwnd, dest_ip):
 
 
 def process_packet(packet,total_chunk_number):
-    global rwnd_per_user
     global chunks_to_be_received
     global num_chunks
     global mutex
-
+    global chunk_numbers_waited_from_each_user
     meta_data = packet[:100].decode("utf-8")   # First 100 bytes is metadata
     seq_num = meta_data.split(";")[0]
     receiving_ip = meta_data.split(";")[1]
     chunk = packet[100:]    # last 1400 bytes is file chunk
-    chunks_to_be_received[seq_num] = chunk
 
     if (len(packet) == 1500) or (int(seq_num) == total_chunk_number-1):
-        send_ACK(seq_num, rwnd_per_user, receiving_ip)
+        if seq_num not in chunks_to_be_received:
+            chunks_to_be_received[seq_num] = chunk
+            chunk_numbers_waited_from_each_user[receiving_ip]-=1
+        remaining_chunk_number_from_receiving_ip= chunk_numbers_waited_from_each_user[receiving_ip]
+        #print("{} packets left from {}".format(str(remaining_chunk_number_from_receiving_ip),receiving_ip))
+        total_chunk_number_left=sum(chunk_numbers_waited_from_each_user.values())
+        #print("total_chunk_number_left: %d" % total_chunk_number_left)
+        if total_chunk_number_left != 0:
+            rwnd_for_receiving_ip= ceil(BUFFER_SIZE * remaining_chunk_number_from_receiving_ip / total_chunk_number_left)
+            rwnd_for_receiving_ip=max(rwnd_for_receiving_ip,1500)
+        else:
+            rwnd_for_receiving_ip=0
+        #print("rwnd_for_receiving_ip: %d" % rwnd_for_receiving_ip)
+        send_ACK(seq_num, rwnd_for_receiving_ip, receiving_ip)
     if len(chunks_to_be_received) == num_chunks:
         try:
             mutex.release()
@@ -143,17 +155,37 @@ def listen_ACK():
         packet = data.decode("utf-8")
 
         seq_num = packet.split(";")[0]
+        rwnd = packet.split(";")[1]
 
         # Stop the thread
-        thread_list[int(seq_num)].is_run = False
         try:
-            index_chunk_to_be_sent, temp_chunk = chunks_to_be_sent.popitem()
-            new_thread = threading.Thread(target=send_single_chunk, daemon=True, args=(temp_chunk, destination_IP))
-            new_thread.start()
-            thread_list[index_chunk_to_be_sent] = new_thread
+            thread_list[int(seq_num)].is_run = False
         except:
             pass
+        thread_list.pop(int(seq_num), None)
 
+        number_of_packets_being_send=len(thread_list)
+        max_pack_num = floor(int(rwnd) / 1500)
+        new_packet_number=max_pack_num-number_of_packets_being_send
+
+        #print("max_pack_num for me: %d" %max_pack_num)
+        #print("new_packet_number for me: %d" %new_packet_number)
+        if new_packet_number > 0 and len(chunks_to_be_sent)>0:
+            for i in range(new_packet_number):
+                # Start a new packet sender thread
+                try:
+                    index_chunk_to_be_sent, temp_chunk = chunks_to_be_sent.popitem()
+                    #print(len(chunks_to_be_sent))
+                    new_thread = threading.Thread(target=send_single_chunk, daemon=True, args=(temp_chunk, destination_IP))
+                    try:
+                        new_thread.start()
+                        thread_list[index_chunk_to_be_sent] = new_thread
+                    except:
+                        #Too many threads bug fix
+                        new_thread.is_run = False
+                        chunks_to_be_sent[index_chunk_to_be_sent] = temp_chunk
+                except Exception as e:
+                    print(e)
 
 # protocol -> sender_IP;filename*filesize/filename*filesize/
 def update_file_list(packet):
@@ -225,14 +257,15 @@ def listen_file_requests():
 
 def send_single_chunk(packet, ip_addr):
     global socket_for_file_send
-    s = socket_for_file_send
     try:
         t = threading.currentThread()
         while getattr(t, "is_run", True):
-            s.sendto(packet, (ip_addr, CHUNK_PORT))
+            socket_for_file_send.sendto(packet, (ip_addr, CHUNK_PORT))
             time.sleep(1)
-    except:
-        pass
+    except Exception as e:
+        print(e)
+        sys.exit()
+
 
 
 def send_file_chunks(filename, chunk_start, chunk_end, dest_ip, rwnd):
@@ -266,7 +299,7 @@ def send_file_chunks(filename, chunk_start, chunk_end, dest_ip, rwnd):
     for i in range(int(min(max_pack_num, num_chunks))):
         index_chunk_to_be_sent, temp_chunk = chunks_to_be_sent.popitem()
         t = threading.Thread(target=send_single_chunk, daemon=True,args=(temp_chunk, dest_ip))
-        t.is_running = True
+        t.is_run = True
         thread_list[index_chunk_to_be_sent] = t
     for thread in thread_list.copy().values():
         thread.start()
@@ -284,7 +317,7 @@ def get_file(filename):
     global mutex
     mutex.acquire()
     users = has_file(filename)
-    global rwnd_per_user
+    global chunk_numbers_waited_from_each_user
     if len(users) == 0:
         print("File not found!")
         return
@@ -297,7 +330,7 @@ def get_file(filename):
 
     base_chunk, extra_chunk = divmod(num_chunks, len(users))
     index = 0
-    rwnd_per_user = ceil(BUFFER_SIZE / len(users))
+    rwnd_per_chunk = ceil(BUFFER_SIZE / num_chunks)
 
     for userIP in users:
         if extra_chunk != 0:
@@ -306,7 +339,8 @@ def get_file(filename):
         else:
             chunk_interval = base_chunk
         if chunk_interval != 0:
-            request_file_chunks(filename, index, index + chunk_interval-1, userIP, rwnd_per_user)
+            chunk_numbers_waited_from_each_user[userIP]=chunk_interval
+            request_file_chunks(filename, index, index + chunk_interval-1, userIP, rwnd_per_chunk*chunk_interval)
             index += chunk_interval
     print("Downloading...")
     mutex.acquire()
