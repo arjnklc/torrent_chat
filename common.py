@@ -3,8 +3,13 @@ import hashlib
 
 
 def get_name():
-    return "Arjen"
-
+    try:
+        name_file = open('myName.txt')
+        my_name = name_file.read()
+        name_file.close()
+        return my_name
+    except:
+        return "Arjen"
 
 def get_own_ip():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -34,7 +39,15 @@ def broadcast(message, port):
 def get_md5(s):
     result = hashlib.md5(s.encode("utf-8"))
     return result.hexdigest()
-
+	
+# Returns md5 hash digest of a given file
+def get_md5_file(fname):
+    hash_md5 = hashlib.md5()
+    with open(fname, "rb") as f:
+        for chunk in iter(lambda: f.read(4096), b""):
+            hash_md5.update(chunk)
+    return hash_md5.hexdigest()	
+	
 
 # Sends a TCP packet to a specified ip address and port.
 # Default timeout is 3 seconds.
