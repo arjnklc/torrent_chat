@@ -28,13 +28,15 @@ threads = {}
 all_files = {}
 chunks_to_be_received = {}  # maps sequence numbers to chunks
 chunks_to_be_sent = {}
-chunk_numbers_waited_from_each_user={}
+chunk_numbers_waited_from_each_user = {}
 num_chunks = 0
 thread_list = {}
 destination_IP = ""
 mutex = threading.Lock()
 socket_for_file_send = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 socket_for_file_send.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+
 def get_my_file_list():
     my_files = []
     path = "files/"
@@ -94,7 +96,7 @@ def send_ACK(seq_num, rwnd, dest_ip):
     send_udp_packet(dest_ip, ACK_PORT, packet)
 
 
-def process_packet(packet,total_chunk_number):
+def process_packet(packet, total_chunk_number):
     global chunks_to_be_received
     global num_chunks
     global mutex
@@ -107,17 +109,15 @@ def process_packet(packet,total_chunk_number):
     if (len(packet) == 1500) or (int(seq_num) == total_chunk_number-1):
         if seq_num not in chunks_to_be_received:
             chunks_to_be_received[seq_num] = chunk
-            chunk_numbers_waited_from_each_user[receiving_ip]-=1
-        remaining_chunk_number_from_receiving_ip= chunk_numbers_waited_from_each_user[receiving_ip]
-        #print("{} packets left from {}".format(str(remaining_chunk_number_from_receiving_ip),receiving_ip))
-        total_chunk_number_left=sum(chunk_numbers_waited_from_each_user.values())
-        #print("total_chunk_number_left: %d" % total_chunk_number_left)
+            chunk_numbers_waited_from_each_user[receiving_ip] -= 1
+        remaining_chunk_number_from_receiving_ip = chunk_numbers_waited_from_each_user[receiving_ip]
+        total_chunk_number_left = sum(chunk_numbers_waited_from_each_user.values())
         if total_chunk_number_left != 0:
-            rwnd_for_receiving_ip= ceil(BUFFER_SIZE * remaining_chunk_number_from_receiving_ip / total_chunk_number_left)
-            rwnd_for_receiving_ip=max(rwnd_for_receiving_ip,1500)
+            rwnd_for_receiving_ip = ceil(BUFFER_SIZE * remaining_chunk_number_from_receiving_ip / total_chunk_number_left)
+            rwnd_for_receiving_ip = max(rwnd_for_receiving_ip, 1500)
         else:
-            rwnd_for_receiving_ip=0
-        #print("rwnd_for_receiving_ip: %d" % rwnd_for_receiving_ip)
+            rwnd_for_receiving_ip = 0
+
         send_ACK(seq_num, rwnd_for_receiving_ip, receiving_ip)
     if len(chunks_to_be_received) == num_chunks:
         try:
@@ -135,7 +135,7 @@ def listen_file_chunks():
         result = select.select([s], [], [])
         data = result[0][0].recv(1600)
         packet = data
-        process_packet(packet,num_chunks)
+        process_packet(packet, num_chunks)
 
 
 # Protocol -> seq_num;rwnd;dest_ip
@@ -164,28 +164,26 @@ def listen_ACK():
             pass
         thread_list.pop(int(seq_num), None)
 
-        number_of_packets_being_send=len(thread_list)
+        number_of_packets_being_send = len(thread_list)
         max_pack_num = floor(int(rwnd) / 1500)
-        new_packet_number=max_pack_num-number_of_packets_being_send
+        new_packet_number = max_pack_num - number_of_packets_being_send
 
-        #print("max_pack_num for me: %d" %max_pack_num)
-        #print("new_packet_number for me: %d" %new_packet_number)
-        if new_packet_number > 0 and len(chunks_to_be_sent)>0:
-            for i in range(new_packet_number):
+        if new_packet_number > 0 and len(chunks_to_be_sent) > 0:
+            for i in range(int(new_packet_number)):
                 # Start a new packet sender thread
                 try:
                     index_chunk_to_be_sent, temp_chunk = chunks_to_be_sent.popitem()
-                    #print(len(chunks_to_be_sent))
                     new_thread = threading.Thread(target=send_single_chunk, daemon=True, args=(temp_chunk, destination_IP))
                     try:
                         new_thread.start()
                         thread_list[index_chunk_to_be_sent] = new_thread
                     except:
-                        #Too many threads bug fix
+                        # Too many threads bug fix
                         new_thread.is_run = False
                         chunks_to_be_sent[index_chunk_to_be_sent] = temp_chunk
-                except Exception as e:
-                    print(e)
+                except:
+                    pass
+
 
 # protocol -> sender_IP;filename*filesize/filename*filesize/
 def update_file_list(packet):
@@ -267,7 +265,6 @@ def send_single_chunk(packet, ip_addr):
         sys.exit()
 
 
-
 def send_file_chunks(filename, chunk_start, chunk_end, dest_ip, rwnd):
     global chunks_to_be_sent
     global thread_list
@@ -289,7 +286,7 @@ def send_file_chunks(filename, chunk_start, chunk_end, dest_ip, rwnd):
         _ = file.read(CHUNK_SIZE * chunk_start)  # Skip first bytes until starting chunk
         while chunk_end+1 > index:
             data = file.read(CHUNK_SIZE)
-            meta_data = bytes("{};{};".format(str(index),sender_ip), "utf-8")
+            meta_data = bytes("{};{};".format(str(index), sender_ip), "utf-8")
             padding_size = 100 - len(meta_data)
             padding = padding_size * bytes("\0", "utf-8")
             packet = meta_data + padding + data     # protocol -> seq_num;chunk
@@ -298,7 +295,7 @@ def send_file_chunks(filename, chunk_start, chunk_end, dest_ip, rwnd):
 
     for i in range(int(min(max_pack_num, num_chunks))):
         index_chunk_to_be_sent, temp_chunk = chunks_to_be_sent.popitem()
-        t = threading.Thread(target=send_single_chunk, daemon=True,args=(temp_chunk, dest_ip))
+        t = threading.Thread(target=send_single_chunk, daemon=True, args=(temp_chunk, dest_ip))
         t.is_run = True
         thread_list[index_chunk_to_be_sent] = t
     for thread in thread_list.copy().values():
