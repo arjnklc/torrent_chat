@@ -3,12 +3,6 @@ import hashlib
 
 
 def get_name():
-    try:
-        name_file = open('myName.txt')
-        my_name = name_file.read()
-        name_file.close()
-        return my_name
-    except:
         return "Arjen"
 
 def get_own_ip():
